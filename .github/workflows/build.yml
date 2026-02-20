@@ -40,14 +40,15 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build release
+        shell: bash
         run: |
           cargo build --release --features onnx
 
       - name: Prepare artifact
+        shell: bash
         run: |
           mkdir -p artifacts
           cp target/release/code-search${{ matrix.ext }} artifacts/${{ matrix.artifact_name }}${{ matrix.ext }}
-          ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -68,6 +69,7 @@ jobs:
 
       - name: Get latest commit message
         id: commit
+        shell: bash
         run: |
           # Get the latest commit message (first line only)
           COMMIT_MSG=$(git log -1 --pretty=format:"%s" | head -c 100)
@@ -76,6 +78,7 @@ jobs:
 
       - name: Extract version from commit
         id: version
+        shell: bash
         run: |
           # Try to extract version from commit message (e.g., "v1.2.3" or "release: 1.2.3")
           # Otherwise use date-based versioning
@@ -105,12 +108,8 @@ jobs:
           name: code-search-windows-x86_64
           path: artifacts/windows
 
-      - name: List artifacts
-        run: |
-          echo "=== Artifacts ==="
-          ls -laR artifacts/
-
       - name: Make Linux binary executable
+        shell: bash
         run: |
           chmod +x artifacts/linux/code-search-linux-x86_64
 
