@@ -16,16 +16,21 @@ permissions:
 jobs:
   build:
     name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs_on }}
+    container:
+      image: ${{ matrix.container }}
+      options: --user root
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
         include:
-          - os: ubuntu-latest
+          - os: linux
+            runs_on: self-hosted
+            container: ubuntu:22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: code-search-linux-x86_64
             ext: ''
-          - os: windows-latest
+          - os: windows
+            runs_on: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: code-search-windows-x86_64
             ext: '.exe'
@@ -38,6 +43,19 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install build dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          apt-get update
+          apt-get install -y mingw-w64 clang
+
+      - name: Install build dependencies (Windows)
+        if: matrix.os == 'windows'
+        shell: powershell
+        run: |
+          choco install visualstudio2022buildtools -y
+          choco install mingw -y
 
       - name: Build release
         shell: bash
@@ -60,7 +78,8 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    container: ubuntu:22.04
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
