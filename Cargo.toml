@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 onnx = ["ort", "tokenizers", "hf-hub"]
+advanced = []
 
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -32,6 +33,30 @@ indicatif = "0.17"
 ort = { version = "2.0.0-rc.9", features = ["download-binaries", "copy-dylibs"], optional = true }
 tokenizers = { version = "0.19", optional = true }
 hf-hub = { version = "0.3", optional = true }
+
+# Syntax-aware parsing for chunking
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-bash = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-yaml = "0.7"
+
+# For query expansion and typo handling
+levenshtein = "1"
+
+# Performance features
+num_cpus = "1"
+
+# For MCP server signal handling
+signal-hook = "0.3"
 
 [dev-dependencies]
 criterion = "0.5"

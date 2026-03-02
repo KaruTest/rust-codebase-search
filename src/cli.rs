@@ -31,7 +31,7 @@ pub enum Commands {
         #[arg(
             long,
             value_name = "MODEL",
-            help = "Embedding model to use (minilm, nomic)",
+            help = "Embedding model to use (minilm, nomic, nemotron)",
             default_value = "minilm"
         )]
         model: String,
@@ -49,7 +49,7 @@ pub enum Commands {
         codebase: String,
         #[arg(
             long,
-            short,
+            short = 'n',
             value_name = "N",
             help = "Maximum number of results",
             default_value = "10"
@@ -62,10 +62,27 @@ pub enum Commands {
         #[arg(
             long,
             value_name = "MODEL",
-            help = "Embedding model to use (minilm, nomic)",
+            help = "Embedding model to use (minilm, nomic, nemotron)",
             default_value = "minilm"
         )]
         model: String,
+        #[arg(long, short = 'l', help = "Filter by programming language")]
+        language: Option<String>,
+        #[arg(long, help = "Filter by file type/extension (e.g., rs, py, js)")]
+        file_type: Option<String>,
+        #[arg(
+            long,
+            help = "Filter by modification date (ISO 8601 timestamp or date)"
+        )]
+        after: Option<String>,
+        #[arg(long, help = "Filter by author (if available in git)")]
+        author: Option<String>,
+        #[arg(long, help = "Filter by imports/dependencies in code")]
+        imports: Option<String>,
+        #[arg(long, help = "Enable fuzzy matching for typos")]
+        fuzzy: Option<bool>,
+        #[arg(long, help = "Disable learning-to-rank personalization")]
+        no_ltr: bool,
     },
     #[command(about = "Show status of indexed codebases")]
     Status {
@@ -85,6 +102,24 @@ pub enum Commands {
         path: bool,
         #[arg(long, help = "Create default config file")]
         create: bool,
+    },
+    #[command(about = "Start MCP server for IDE integration")]
+    Mcp {},
+    #[command(about = "Record click feedback for Learning-to-Rank")]
+    Click {
+        #[arg(value_name = "QUERY", help = "The search query")]
+        query: String,
+        #[arg(value_name = "CHUNK_ID", help = "The chunk ID that was clicked")]
+        chunk_id: i64,
+        #[arg(
+            long,
+            value_name = "RANK",
+            help = "The rank/position of the clicked result",
+            default_value = "1"
+        )]
+        rank: i64,
+        #[arg(long, value_name = "CODEBASE", help = "Path to the indexed codebase")]
+        codebase: Option<String>,
     },
 }
 
@@ -112,6 +147,13 @@ pub fn run(cli: Cli) -> Result<()> {
             vector_only,
             pretty,
             model,
+            language,
+            file_type,
+            after,
+            author,
+            imports,
+            fuzzy,
+            no_ltr,
         } => run_search(
             &query,
             &codebase,
@@ -120,10 +162,24 @@ pub fn run(cli: Cli) -> Result<()> {
             pretty,
             &model,
             &config,
+            language,
+            file_type,
+            after,
+            author,
+            imports,
+            fuzzy,
+            no_ltr,
         ),
         Commands::Status { list, json } => run_status(list, json),
         Commands::Delete { codebase_path } => run_delete(&codebase_path),
         Commands::Config { path, create } => run_config(path, create, &config),
+        Commands::Mcp {} => run_mcp(),
+        Commands::Click {
+            query,
+            chunk_id,
+            rank,
+            codebase,
+        } => run_click(&query, chunk_id, rank, codebase.as_deref()),
     }
 }
 
@@ -187,6 +243,13 @@ fn run_search(
     pretty: bool,
     model: &str,
     config: &Config,
+    language: Option<String>,
+    file_type: Option<String>,
+    after: Option<String>,
+    author: Option<String>,
+    imports: Option<String>,
+    fuzzy: Option<bool>,
+    no_ltr: bool,
 ) -> Result<()> {
     let model = if model == "minilm" {
         config.model.model_type.as_str()
@@ -218,6 +281,26 @@ fn run_search(
         ));
     }
 
+    // Parse after filter (supports ISO 8601 or Unix timestamp)
+    let after_timestamp = if let Some(after_str) = after {
+        Some(parse_timestamp(&after_str)?)
+    } else {
+        None
+    };
+
+    // Build search filters
+    let filters = crate::database::SearchFilters {
+        language,
+        after_timestamp,
+        author,
+        file_type,
+        imports,
+    };
+
+    // Determine fuzzy and LTR settings
+    let enable_fuzzy = fuzzy.unwrap_or(config.search.enable_fuzzy);
+    let enable_ltr = !no_ltr && config.search.enable_ltr;
+
     ensure_model_available_with_model(model).map_err(|e| {
         CodeSearchError::EmbeddingModelLoad(format!(
             "Failed to load embedding model '{}': {}",
@@ -227,8 +310,15 @@ fn run_search(
 
     let query_embedding = get_query_embedding_with_model(query, model);
 
-    let db_results =
-        crate::database::hybrid_search(&conn, query, Some(&codebase_id), &query_embedding, limit)?;
+    let db_results = crate::database::hybrid_search(
+        &conn,
+        query,
+        Some(&codebase_id),
+        &query_embedding,
+        limit,
+        &filters,
+        enable_fuzzy,
+    )?;
 
     let results: Vec<crate::search::SearchResult> = db_results
         .into_iter()
@@ -253,6 +343,29 @@ fn run_search(
     }
 
     Ok(())
+}
+
+/// Parse timestamp from string (supports ISO 8601 and Unix timestamp)
+fn parse_timestamp(s: &str) -> Result<i64> {
+    // Try parsing as Unix timestamp first
+    if let Ok(ts) = s.parse::<i64>() {
+        return Ok(ts);
+    }
+
+    // Try parsing ISO 8601 date
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.timestamp());
+    }
+
+    // Try parsing date only (assume UTC)
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Ok(date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp());
+    }
+
+    Err(CodeSearchError::InvalidInput(format!(
+        "Invalid timestamp format: {}. Use Unix timestamp or ISO 8601 format.",
+        s
+    )))
 }
 
 fn run_status(list: bool, json: bool) -> Result<()> {
@@ -370,9 +483,15 @@ fn run_config(show_path: bool, create: bool, config: &Config) -> Result<()> {
 
         // Indexing config
         println!("  [indexing]");
-        println!("    extensions: {} entries", config.indexing.extensions.len());
+        println!(
+            "    extensions: {} entries",
+            config.indexing.extensions.len()
+        );
         println!("    skip_dirs: {} entries", config.indexing.skip_dirs.len());
-        println!("    skip_files: {} entries", config.indexing.skip_files.len());
+        println!(
+            "    skip_files: {} entries",
+            config.indexing.skip_files.len()
+        );
         println!("    use_gitignore: {}", config.indexing.use_gitignore);
         println!("    batch_size: {}", config.indexing.batch_size);
 
@@ -398,6 +517,32 @@ fn run_config(show_path: bool, create: bool, config: &Config) -> Result<()> {
             None => println!("Config file: not available"),
         }
     }
+    Ok(())
+}
+
+fn run_click(query: &str, chunk_id: i64, rank: i64, codebase_path: Option<&str>) -> Result<()> {
+    let codebase_id = if let Some(path) = codebase_path {
+        let canonical = Path::new(path)
+            .canonicalize()
+            .map_err(CodeSearchError::Io)?;
+        Some(crate::manifest::get_codebase_hash(&canonical))
+    } else {
+        None
+    };
+
+    let conn = init_db()?;
+    crate::database::record_click(&conn, query, chunk_id, rank, codebase_id.as_deref())?;
+
+    println!(
+        "Recorded click: query='{}', chunk_id={}, rank={}",
+        query, chunk_id, rank
+    );
+
+    Ok(())
+}
+
+fn run_mcp() -> Result<()> {
+    crate::mcp::run_mcp_server();
     Ok(())
 }
 
@@ -550,8 +695,9 @@ mod tests {
         assert!(cli.is_ok());
         if let Ok(cli) = cli {
             match cli.command {
-                Commands::Config { path } => {
+                Commands::Config { path, create } => {
                     assert!(!path);
+                    assert!(!create);
                 }
                 _ => panic!("Expected Config command"),
             }
@@ -564,8 +710,9 @@ mod tests {
         assert!(cli.is_ok());
         if let Ok(cli) = cli {
             match cli.command {
-                Commands::Config { path } => {
+                Commands::Config { path, create } => {
                     assert!(path);
+                    assert!(!create);
                 }
                 _ => panic!("Expected Config command"),
             }

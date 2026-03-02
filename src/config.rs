@@ -27,6 +27,14 @@ pub struct ModelConfig {
     pub model_type: String,
     #[serde(default = "default_auto_download")]
     pub auto_download: bool,
+    /// Custom model path: local ONNX file path or HuggingFace model ID
+    /// Example: "sentence-transformers/all-mpnet-base-v2" or "/path/to/model.onnx"
+    #[serde(default)]
+    pub model_path: Option<String>,
+    /// Embedding dimension (required for custom models)
+    /// Example: 768 for all-mpnet-base-v2
+    #[serde(default)]
+    pub embedding_dim: Option<usize>,
 }
 
 impl Default for ModelConfig {
@@ -34,6 +42,8 @@ impl Default for ModelConfig {
         Self {
             model_type: default_model_type(),
             auto_download: default_auto_download(),
+            model_path: None,
+            embedding_dim: None,
         }
     }
 }
@@ -274,12 +284,26 @@ fn default_chunk_overlap() -> usize {
     10
 }
 
+fn default_token_budget() -> String {
+    "medium".to_string()
+}
+
+fn default_use_syntax_aware() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkingConfig {
     #[serde(default = "default_chunk_size")]
     pub chunk_size: usize,
     #[serde(default = "default_chunk_overlap")]
     pub chunk_overlap: usize,
+    /// Token budget for chunks: "small" (256), "medium" (512), "large" (1024), or custom number
+    #[serde(default = "default_token_budget")]
+    pub token_budget: String,
+    /// Enable syntax-aware chunking using tree-sitter
+    #[serde(default = "default_use_syntax_aware")]
+    pub use_syntax_aware: bool,
 }
 
 impl Default for ChunkingConfig {
@@ -287,6 +311,8 @@ impl Default for ChunkingConfig {
         Self {
             chunk_size: default_chunk_size(),
             chunk_overlap: default_chunk_overlap(),
+            token_budget: default_token_budget(),
+            use_syntax_aware: default_use_syntax_aware(),
         }
     }
 }
@@ -305,6 +331,26 @@ fn default_vector_weight() -> f64 {
     0.4
 }
 
+fn default_enable_fuzzy() -> bool {
+    true
+}
+
+fn default_fuzzy_max_distance() -> usize {
+    2
+}
+
+fn default_enable_ltr() -> bool {
+    true
+}
+
+fn default_bm25_k1() -> f64 {
+    1.5
+}
+
+fn default_bm25_b() -> f64 {
+    0.75
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
     #[serde(default = "default_limit")]
@@ -313,6 +359,16 @@ pub struct SearchConfig {
     pub fts_weight: f64,
     #[serde(default = "default_vector_weight")]
     pub vector_weight: f64,
+    #[serde(default = "default_enable_fuzzy")]
+    pub enable_fuzzy: bool,
+    #[serde(default = "default_fuzzy_max_distance")]
+    pub fuzzy_max_distance: usize,
+    #[serde(default = "default_enable_ltr")]
+    pub enable_ltr: bool,
+    #[serde(default = "default_bm25_k1")]
+    pub bm25_k1: f64,
+    #[serde(default = "default_bm25_b")]
+    pub bm25_b: f64,
 }
 
 impl Default for SearchConfig {
@@ -321,6 +377,11 @@ impl Default for SearchConfig {
             default_limit: default_limit(),
             fts_weight: default_fts_weight(),
             vector_weight: default_vector_weight(),
+            enable_fuzzy: default_enable_fuzzy(),
+            fuzzy_max_distance: default_fuzzy_max_distance(),
+            enable_ltr: default_enable_ltr(),
+            bm25_k1: default_bm25_k1(),
+            bm25_b: default_bm25_b(),
         }
     }
 }
@@ -352,6 +413,95 @@ impl Default for DatabaseConfig {
     }
 }
 
+// ============== Performance Configuration ==============
+
+fn default_hnsw_enabled() -> bool {
+    false
+}
+
+fn default_hnsw_max_connections() -> usize {
+    16
+}
+
+fn default_hnsw_ef_search() -> usize {
+    64
+}
+
+fn default_cache_size() -> usize {
+    1000
+}
+
+fn default_batch_size_perf() -> usize {
+    32
+}
+
+fn default_use_gpu() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceConfig {
+    #[serde(default = "default_hnsw_enabled")]
+    pub hnsw_enabled: bool,
+    #[serde(default = "default_hnsw_max_connections")]
+    pub hnsw_max_connections: usize,
+    #[serde(default = "default_hnsw_ef_search")]
+    pub hnsw_ef_search: usize,
+    #[serde(default = "default_cache_size")]
+    pub cache_size: usize,
+    #[serde(default = "default_batch_size_perf")]
+    pub batch_size: usize,
+    #[serde(default = "default_use_gpu")]
+    pub use_gpu: bool,
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            hnsw_enabled: default_hnsw_enabled(),
+            hnsw_max_connections: default_hnsw_max_connections(),
+            hnsw_ef_search: default_hnsw_ef_search(),
+            cache_size: default_cache_size(),
+            batch_size: default_batch_size_perf(),
+            use_gpu: default_use_gpu(),
+        }
+    }
+}
+
+// ============== Distributed Configuration ==============
+
+fn default_distributed_enabled() -> bool {
+    false
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributedConfig {
+    #[serde(default = "default_distributed_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub node_id: String,
+    #[serde(default)]
+    pub shard_path: String,
+}
+
+impl Default for DistributedConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_distributed_enabled(),
+            node_id: format!("node_{}", uuid_simple()),
+            shard_path: "shards".to_string(),
+        }
+    }
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{:x}{:x}", duration.as_secs(), duration.subsec_nanos())
+}
+
 // ============== Main Config ==============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -366,6 +516,10 @@ pub struct Config {
     pub search: SearchConfig,
     #[serde(default)]
     pub database: DatabaseConfig,
+    #[serde(default)]
+    pub performance: PerformanceConfig,
+    #[serde(default)]
+    pub distributed: DistributedConfig,
 }
 
 impl Default for Config {
@@ -376,6 +530,8 @@ impl Default for Config {
             chunking: ChunkingConfig::default(),
             search: SearchConfig::default(),
             database: DatabaseConfig::default(),
+            performance: PerformanceConfig::default(),
+            distributed: DistributedConfig::default(),
         }
     }
 }
@@ -386,12 +542,54 @@ impl Config {
         &self.model.model_type
     }
 
+    /// Returns the model path if specified (for custom models)
+    pub fn model_path(&self) -> Option<&str> {
+        self.model.model_path.as_deref()
+    }
+
+    /// Returns the embedding dimension if specified (for custom models)
+    pub fn embedding_dim(&self) -> Option<usize> {
+        self.model.embedding_dim
+    }
+
+    /// Returns true if this is a custom model configuration
+    pub fn is_custom_model(&self) -> bool {
+        self.model.model_type == "custom" && self.model.model_path.is_some()
+    }
+
+    /// Validates the model configuration
+    /// Returns an error message if validation fails, or None if valid
+    pub fn validate_model_config(&self) -> Option<String> {
+        if self.model.model_type == "custom" {
+            if self.model.model_path.is_none() {
+                return Some("Custom model requires model_path in config".to_string());
+            }
+            if self.model.embedding_dim.is_none() {
+                return Some("Custom model requires embedding_dim in config".to_string());
+            }
+            if let Some(dim) = self.model.embedding_dim {
+                if dim == 0 {
+                    return Some("embedding_dim must be greater than 0".to_string());
+                }
+            }
+        }
+        None
+    }
+
     pub fn chunk_size(&self) -> usize {
         self.chunking.chunk_size
     }
 
     pub fn chunk_overlap(&self) -> usize {
         self.chunking.chunk_overlap
+    }
+
+    pub fn token_budget(&self) -> &str {
+        &self.chunking.token_budget
+    }
+
+    pub fn use_syntax_aware(&self) -> bool {
+        self.chunking.use_syntax_aware
     }
 
     pub fn default_limit(&self) -> usize {
@@ -426,12 +624,70 @@ impl Config {
         self.search.vector_weight
     }
 
+    pub fn enable_fuzzy(&self) -> bool {
+        self.search.enable_fuzzy
+    }
+
+    pub fn fuzzy_max_distance(&self) -> usize {
+        self.search.fuzzy_max_distance
+    }
+
+    pub fn enable_ltr(&self) -> bool {
+        self.search.enable_ltr
+    }
+
+    pub fn bm25_k1(&self) -> f64 {
+        self.search.bm25_k1
+    }
+
+    pub fn bm25_b(&self) -> f64 {
+        self.search.bm25_b
+    }
+
     pub fn data_dir(&self) -> &str {
         &self.database.data_dir
     }
 
     pub fn db_name(&self) -> &str {
         &self.database.db_name
+    }
+
+    // Performance config accessors
+    pub fn hnsw_enabled(&self) -> bool {
+        self.performance.hnsw_enabled
+    }
+
+    pub fn hnsw_max_connections(&self) -> usize {
+        self.performance.hnsw_max_connections
+    }
+
+    pub fn hnsw_ef_search(&self) -> usize {
+        self.performance.hnsw_ef_search
+    }
+
+    pub fn cache_size(&self) -> usize {
+        self.performance.cache_size
+    }
+
+    pub fn performance_batch_size(&self) -> usize {
+        self.performance.batch_size
+    }
+
+    pub fn use_gpu(&self) -> bool {
+        self.performance.use_gpu
+    }
+
+    // Distributed config accessors
+    pub fn distributed_enabled(&self) -> bool {
+        self.distributed.enabled
+    }
+
+    pub fn node_id(&self) -> &str {
+        &self.distributed.node_id
+    }
+
+    pub fn shard_path(&self) -> &str {
+        &self.distributed.shard_path
     }
 }
 
@@ -463,6 +719,12 @@ impl Config {
         }
         if let Ok(val) = env::var(format!("{}MODEL_AUTO_DOWNLOAD", ENV_PREFIX)) {
             self.model.auto_download = val.parse().unwrap_or(true);
+        }
+        if let Ok(val) = env::var(format!("{}MODEL_PATH", ENV_PREFIX)) {
+            self.model.model_path = Some(val);
+        }
+        if let Ok(val) = env::var(format!("{}EMBEDDING_DIM", ENV_PREFIX)) {
+            self.model.embedding_dim = val.parse().ok();
         }
 
         // Indexing overrides
@@ -499,6 +761,31 @@ impl Config {
         if let Ok(val) = env::var(format!("{}DB_NAME", ENV_PREFIX)) {
             self.database.db_name = val;
         }
+
+        // Performance overrides
+        if let Ok(val) = env::var(format!("{}HNSW_ENABLED", ENV_PREFIX)) {
+            self.performance.hnsw_enabled = val.parse().unwrap_or(false);
+        }
+        if let Ok(val) = env::var(format!("{}HNSW_MAX_CONNECTIONS", ENV_PREFIX)) {
+            self.performance.hnsw_max_connections = val.parse().unwrap_or(16);
+        }
+        if let Ok(val) = env::var(format!("{}HNSW_EF_SEARCH", ENV_PREFIX)) {
+            self.performance.hnsw_ef_search = val.parse().unwrap_or(64);
+        }
+        if let Ok(val) = env::var(format!("{}CACHE_SIZE", ENV_PREFIX)) {
+            self.performance.cache_size = val.parse().unwrap_or(1000);
+        }
+        if let Ok(val) = env::var(format!("{}PERF_BATCH_SIZE", ENV_PREFIX)) {
+            self.performance.batch_size = val.parse().unwrap_or(32);
+        }
+        if let Ok(val) = env::var(format!("{}USE_GPU", ENV_PREFIX)) {
+            self.performance.use_gpu = val.parse().unwrap_or(true);
+        }
+
+        // Distributed overrides
+        if let Ok(val) = env::var(format!("{}DISTRIBUTED_ENABLED", ENV_PREFIX)) {
+            self.distributed.enabled = val.parse().unwrap_or(false);
+        }
     }
 
     pub fn config_path() -> Option<PathBuf> {
@@ -519,7 +806,8 @@ impl Config {
 
     /// Get the database path
     pub fn get_db_path(&self) -> Option<PathBuf> {
-        self.get_data_dir().map(|dir| dir.join(&self.database.db_name))
+        self.get_data_dir()
+            .map(|dir| dir.join(&self.database.db_name))
     }
 }
 
@@ -594,7 +882,7 @@ chunk_size = 100
         assert_eq!(config.chunk_size(), 50);
         assert_eq!(config.chunk_overlap(), 10);
         assert_eq!(config.default_limit(), 10);
-        assert_eq!(config.extensions().len(), 120);
+        assert_eq!(config.extensions().len(), 119);
         assert_eq!(config.skip_dirs().len(), 26);
         assert_eq!(config.skip_files().len(), 30);
         assert_eq!(config.batch_size(), 32);

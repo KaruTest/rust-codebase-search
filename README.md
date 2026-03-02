@@ -168,8 +168,12 @@ code-search config                # Show current configuration
 
 ```toml
 [model]
-model_type = "minilm"      # "minilm" or "nomic"
+model_type = "minilm"      # "minilm", "nomic", or "custom"
 auto_download = true
+
+# Custom model configuration (when model_type = "custom")
+# model_path = "sentence-transformers/all-mpnet-base-v2"  # HuggingFace model ID or local path
+# embedding_dim = 768  # Required for custom models
 
 [indexing]
 extensions = [".rs", ".py", ".js", ".ts", ".go", ".java"]
@@ -208,7 +212,91 @@ db_name = "index.db"
 
 ## MCP Server Setup
 
-This project includes an MCP (Model Context Protocol) server for IDE integration.
+This project includes a full MCP (Model Context Protocol) server for IDE integration. The MCP server provides 4 tools for semantic code search that can be used by Claude, Zed, VSCode, and other MCP-compatible clients.
+
+### Starting the MCP Server
+
+```bash
+# Start the MCP server (uses stdio transport)
+code-search mcp
+
+# Or with the binary path
+/path/to/code-search mcp
+```
+
+The MCP server runs in stdio mode, making it compatible with Claude Desktop, Zed, and VSCode.
+
+### Testing the MCP Server
+
+You can test the MCP server manually using JSON-RPC:
+
+```bash
+# Start the server
+code-search mcp
+
+# Send initialize request (from another terminal or script)
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | code-search mcp
+
+# List tools
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | code-search mcp
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `codebase_index` | Index a codebase for semantic search |
+| `codebase_search` | Search indexed code using semantic similarity |
+| `codebase_status` | List all indexed codebases and stats |
+| `codebase_delete` | Remove a codebase from the index |
+
+### Tool Details
+
+**codebase_index:**
+```json
+{
+  "path": "/path/to/codebase",
+  "force": false,
+  "model": "minilm"
+}
+```
+
+**codebase_search:**
+```json
+{
+  "query": "function that handles authentication",
+  "codebase": "/path/to/codebase",
+  "limit": 10,
+  "language": "rust"
+}
+```
+
+**codebase_status:**
+```json
+{}
+```
+
+**codebase_delete:**
+```json
+{
+  "path": "/path/to/codebase"
+}
+```
+
+### MCP Resources
+
+The MCP server also exposes codebases as resources that can be read:
+
+| Resource URI | Description |
+|--------------|-------------|
+| `codebase://{name}/summary` | Summary statistics for a codebase |
+
+Example resource read:
+```json
+{
+  "uri": "codebase://my-project/summary"
+}
+```
 
 ### Claude Desktop
 
@@ -325,6 +413,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 |-------|-----------|----------|
 | MiniLM (default) | 384 | Fast, lightweight |
 | Nomic | 768 | Higher quality |
+| Custom | User-defined | Use your own model |
 
 **MiniLM:**
 - Repo: `sentence-transformers/all-MiniLM-L6-v2`
@@ -333,6 +422,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 **Nomic:**
 - Repo: `nomic-ai/nomic-embed-text-v1.5`
 - Prefix: `search_document: ` / `search_query: `
+
+### Custom Models
+
+You can use any sentence-transformers model from HuggingFace or a local ONNX model:
+
+```toml
+[model]
+model_type = "custom"
+model_path = "sentence-transformers/all-mpnet-base-v2"
+embedding_dim = 768
+```
+
+Or use a local model:
+
+```toml
+[model]
+model_type = "custom"
+model_path = "/path/to/your/model.onnx"
+embedding_dim = 768
+```
+
+The model will be automatically downloaded from HuggingFace if not found locally. For local ONNX models, ensure you also have the corresponding `tokenizer.json` in the same directory.
+
+**Supported HuggingFace models include:**
+- `sentence-transformers/all-mpnet-base-v2` (768-dim)
+- `sentence-transformers/e5-base-v2` (768-dim)
+- `BAAI/bge-large-en-v1.5` (1024-dim)
+- Any sentence-transformers model with ONNX export
 
 ---
 

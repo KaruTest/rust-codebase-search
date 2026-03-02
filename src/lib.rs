@@ -81,24 +81,33 @@
 
 pub mod cli;
 pub mod config;
+pub mod context_enriched;
 pub mod database;
 pub mod embedding;
 pub mod error;
 pub mod gitignore;
 pub mod indexing;
 pub mod manifest;
+pub mod mcp;
+pub mod performance;
+pub mod query_expansion;
 pub mod search;
+pub mod session;
 pub mod splitter;
+pub mod syntax_aware;
+
+#[cfg(feature = "advanced")]
+pub mod advanced;
 
 pub use cli::{run, Cli};
 pub use config::{
     get_config, set_config, reset_config, Config, ChunkingConfig, DatabaseConfig,
-    ModelConfig, SearchConfig,
+    DistributedConfig, ModelConfig, PerformanceConfig, SearchConfig,
 };
 pub use database::{
     delete_chunks_for_codebase, delete_chunks_for_file, get_codebase_stats, get_db_path,
     get_global_stats, hybrid_search, init_db, insert_chunks, reset_db, vector_search, Chunk,
-    SearchResult, Stats, DATA_DIR, DB_NAME,
+    SearchResult, SearchFilters, Stats, DATA_DIR, DB_NAME,
 };
 pub use embedding::{
     check_available, check_available_with_model, ensure_model_available,
@@ -118,6 +127,39 @@ pub use search::{format_results, search, FormattedResult, SearchResult as Search
 pub use splitter::{
     detect_language, generate_chunk_id, language_map, split_file, CodeChunk, DEFAULT_CHUNK_SIZE,
     DEFAULT_OVERLAP,
+};
+pub use syntax_aware::{
+    get_language_config, is_language_supported, parse_source, split_file_syntax_aware, LanguageConfig,
+    Point, SyntaxNode,
+};
+pub use context_enriched::{
+    enrich_chunk, extract_context, extract_doc_comments, extract_function_signatures,
+    extract_imports, extract_types, estimate_tokens, ChunkMetadata, EnrichedChunk, LineRange,
+};
+pub use query_expansion::{
+    correct_typos, expand_query, expand_query_fts, process_query, ProcessedQuery,
+    TokenBudget,
+};
+pub use session::{
+    MultiStepSearchRequest, MultiStepSearchResult, QueryStep, SearchSession, SessionManager,
+    SessionSearchResult, SessionSummary,
+};
+
+// Performance module exports
+pub use performance::{
+    batch::{BatchConfig, BatchProgress, BatchResult, detect_gpu_acceleration, get_optimal_batch_size, process_embeddings_batch, process_embeddings_with_callback, GpuInfo, GpuProvider},
+    cache::{get_query_cache, init_query_cache, invalidate_query_cache, CacheStats, QueryCache},
+    distributed::{DistributedConfig as DistConfig, DistributedQueryRouter, DistributedSearchPlan, ShardConfig, ShardManager, ShardRouter, ConsistencyLevel, get_distributed_router, init_distributed},
+    hnsw::{distance_to_similarity, HnswConfig, HnswIndex},
+};
+
+#[cfg(feature = "advanced")]
+pub use advanced::{
+    analyze_api_change, predict_changes, find_related_tests, get_cached_graph,
+    get_graph_resources, search_multi_codebase, rerank_results_llm, summarize_chunk_llm,
+    CodeGraph, ChangePrediction, ChangeType, EdgeType, GraphEdge, GraphNode, GraphResource,
+    LlmConfig, MultiCodebaseResult, NodeType, PredictedChange, SemanticAction, ActionType,
+    ActionTarget,
 };
 
 #[cfg(test)]

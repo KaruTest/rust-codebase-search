@@ -23,6 +23,9 @@ pub enum CodeSearchError {
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),
 
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -31,6 +34,9 @@ pub enum CodeSearchError {
 
     #[error("Manifest error: {0}")]
     Manifest(String),
+
+    #[error("Other error: {0}")]
+    Other(String),
 }
 
 pub type Result<T> = std::result::Result<T, CodeSearchError>;

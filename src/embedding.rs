@@ -1,22 +1,47 @@
+use crate::config::get_config;
 use crate::error::Result;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
 pub const DEFAULT_MODEL: &str = "minilm";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Custom model configuration for user-specified embeddings
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomModelConfig {
+    pub model_path: String,
+    pub embedding_dim: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
     MiniLM,
     Nomic,
+    Nemotron,
+    Custom(CustomModelConfig),
 }
 
 impl std::str::FromStr for ModelType {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "minilm" | "all-minilm-l6-v2" => Ok(ModelType::MiniLM),
             "nomic" | "nomic-embed-text-v1.5" => Ok(ModelType::Nomic),
+            "nemotron" | "llama-nemotron-embed-vl-1b-v2" => Ok(ModelType::Nemotron),
+            "custom" => {
+                // For custom models, we need to load config to get model_path and embedding_dim
+                let config = get_config();
+                if let (Some(model_path), Some(embedding_dim)) =
+                    (config.model_path(), config.embedding_dim())
+                {
+                    Ok(ModelType::Custom(CustomModelConfig {
+                        model_path: model_path.to_string(),
+                        embedding_dim,
+                    }))
+                } else {
+                    Err("Custom model requires model_path and embedding_dim in config".to_string())
+                }
+            }
             _ => Ok(ModelType::MiniLM),
         }
     }
@@ -24,13 +49,18 @@ impl std::str::FromStr for ModelType {
 
 impl ModelType {
     pub fn parse(s: &str) -> Self {
-        s.parse().unwrap_or(ModelType::MiniLM)
+        match s.parse() {
+            Ok(model_type) => model_type,
+            Err(_) => ModelType::MiniLM,
+        }
     }
 
     pub fn dimension(&self) -> usize {
         match self {
             ModelType::MiniLM => 384,
             ModelType::Nomic => 768,
+            ModelType::Nemotron => 2048,
+            ModelType::Custom(config) => config.embedding_dim,
         }
     }
 
@@ -38,6 +68,8 @@ impl ModelType {
         match self {
             ModelType::MiniLM => "",
             ModelType::Nomic => "search_document: ",
+            ModelType::Nemotron => "passage: ",
+            ModelType::Custom(_) => "",
         }
     }
 
@@ -45,6 +77,8 @@ impl ModelType {
         match self {
             ModelType::MiniLM => "",
             ModelType::Nomic => "search_query: ",
+            ModelType::Nemotron => "query: ",
+            ModelType::Custom(_) => "",
         }
     }
 }
@@ -345,6 +379,8 @@ mod onnx_backend {
             match self {
                 ModelType::MiniLM => "sentence-transformers/all-MiniLM-L6-v2",
                 ModelType::Nomic => "nomic-ai/nomic-embed-text-v1.5",
+                ModelType::Nemotron => "nvidia/llama-nemotron-embed-vl-1b-v2",
+                ModelType::Custom(config) => &config.model_path,
             }
         }
     }
@@ -444,11 +480,19 @@ use fallback_backend::GlobalEmbedder;
 
 static MINILM_EMBEDDER: OnceLock<GlobalEmbedder> = OnceLock::new();
 static NOMIC_EMBEDDER: OnceLock<GlobalEmbedder> = OnceLock::new();
+static NEMOTRON_EMBEDDER: OnceLock<GlobalEmbedder> = OnceLock::new();
+static CUSTOM_EMBEDDER: OnceLock<GlobalEmbedder> = OnceLock::new();
 
-fn get_embedder(model_type: ModelType) -> &'static GlobalEmbedder {
+fn get_embedder(model_type: &ModelType) -> &'static GlobalEmbedder {
     match model_type {
         ModelType::MiniLM => MINILM_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::MiniLM)),
         ModelType::Nomic => NOMIC_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Nomic)),
+        ModelType::Nemotron => {
+            NEMOTRON_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Nemotron))
+        }
+        ModelType::Custom(config) => {
+            CUSTOM_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Custom(config.clone())))
+        }
     }
 }
 
@@ -460,18 +504,18 @@ pub struct EmbeddingModel {
 impl EmbeddingModel {
     pub fn new(model_name: Option<&str>) -> Result<Self> {
         let model_type = ModelType::parse(model_name.unwrap_or(DEFAULT_MODEL));
-        let embedder = get_embedder(model_type);
+        let embedder = get_embedder(&model_type);
         embedder.ensure_loaded()?;
         Ok(Self { model_type })
     }
 
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        let embedder = get_embedder(self.model_type);
+        let embedder = get_embedder(&self.model_type);
         embedder.get_embedding_with_prefix(text, self.model_type.document_prefix())
     }
 
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        let embedder = get_embedder(self.model_type);
+        let embedder = get_embedder(&self.model_type);
         let texts: Vec<String> = texts.iter().map(|s| s.to_string()).collect();
         embedder.get_embeddings_batch(&texts, texts.len(), false)
     }
@@ -487,7 +531,7 @@ pub fn get_embedding(text: &str) -> Vec<f32> {
 
 pub fn get_embedding_with_model(text: &str, model: &str) -> Vec<f32> {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     let prefix = model_type.document_prefix();
     embedder
         .get_embedding_with_prefix(text, prefix)
@@ -500,7 +544,7 @@ pub fn get_query_embedding(text: &str) -> Vec<f32> {
 
 pub fn get_query_embedding_with_model(text: &str, model: &str) -> Vec<f32> {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     let prefix = model_type.query_prefix();
     embedder
         .get_embedding_with_prefix(text, prefix)
@@ -518,7 +562,7 @@ pub fn get_embeddings_batch_with_model(
     model: &str,
 ) -> Vec<Vec<f32>> {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     embedder
         .get_embeddings_batch(texts, batch_size, is_query)
         .unwrap_or_else(|_| {
@@ -535,7 +579,7 @@ pub fn check_available() -> bool {
 
 pub fn check_available_with_model(model: &str) -> bool {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     embedder.check_available()
 }
 
@@ -545,7 +589,7 @@ pub fn ensure_model_available() -> Result<()> {
 
 pub fn ensure_model_available_with_model(model: &str) -> Result<()> {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     embedder.ensure_loaded()
 }
 
@@ -555,7 +599,7 @@ pub fn get_model_dimension(model: &str) -> usize {
 
 pub fn is_model_loaded(model: &str) -> bool {
     let model_type = ModelType::parse(model);
-    let embedder = get_embedder(model_type);
+    let embedder = get_embedder(&model_type);
     embedder.is_loaded()
 }
 
@@ -582,6 +626,11 @@ mod tests {
         assert_eq!(ModelType::parse("all-minilm-l6-v2"), ModelType::MiniLM);
         assert_eq!(ModelType::parse("nomic"), ModelType::Nomic);
         assert_eq!(ModelType::parse("Nomic"), ModelType::Nomic);
+        assert_eq!(ModelType::parse("nemotron"), ModelType::Nemotron);
+        assert_eq!(
+            ModelType::parse("llama-nemotron-embed-vl-1b-v2"),
+            ModelType::Nemotron
+        );
         assert_eq!(ModelType::parse("unknown"), ModelType::MiniLM);
     }
 
@@ -589,6 +638,7 @@ mod tests {
     fn test_model_dimensions() {
         assert_eq!(ModelType::MiniLM.dimension(), 384);
         assert_eq!(ModelType::Nomic.dimension(), 768);
+        assert_eq!(ModelType::Nemotron.dimension(), 2048);
     }
 
     #[test]
@@ -597,6 +647,8 @@ mod tests {
         assert_eq!(ModelType::MiniLM.query_prefix(), "");
         assert_eq!(ModelType::Nomic.document_prefix(), "search_document: ");
         assert_eq!(ModelType::Nomic.query_prefix(), "search_query: ");
+        assert_eq!(ModelType::Nemotron.document_prefix(), "passage: ");
+        assert_eq!(ModelType::Nemotron.query_prefix(), "query: ");
     }
 
     #[test]
@@ -625,6 +677,7 @@ mod tests {
     fn test_get_model_dimension() {
         assert_eq!(get_model_dimension("minilm"), 384);
         assert_eq!(get_model_dimension("nomic"), 768);
+        assert_eq!(get_model_dimension("nemotron"), 2048);
     }
 
     #[test]
