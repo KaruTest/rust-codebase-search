@@ -107,7 +107,8 @@ pub use config::{
 pub use database::{
     delete_chunks_for_codebase, delete_chunks_for_file, get_codebase_stats, get_db_path,
     get_global_stats, hybrid_search, init_db, insert_chunks, reset_db, vector_search, Chunk,
-    SearchResult, SearchFilters, Stats, DATA_DIR, DB_NAME,
+    SearchResult, SearchFilters, Stats, CodebaseMetadata, register_codebase, 
+    get_codebase_metadata, list_codebases_with_metadata, DATA_DIR, DB_NAME,
 };
 pub use embedding::{
     check_available, check_available_with_model, ensure_model_available,

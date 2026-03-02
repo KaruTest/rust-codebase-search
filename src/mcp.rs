@@ -258,6 +258,11 @@ impl McpServer {
                             "type": "string",
                             "description": "Embedding model to use (minilm, nomic, nemotron)",
                             "default": "minilm"
+                        },
+                        "tags": {
+                            "type": "string",
+                            "description": "Comma-separated tags for the codebase (e.g., 'backend,api,auth')",
+                            "default": ""
                         }
                     },
                     "required": ["path"]
@@ -265,7 +270,7 @@ impl McpServer {
             },
             Tool {
                 name: "codebase_search".to_string(),
-                description: "Search indexed code using semantic similarity and full-text search. Returns code chunks that match the query.".to_string(),
+                description: "Search indexed code using semantic similarity and full-text search. Returns code chunks that match the query. Can search a single codebase by path or ID, or search all codebases if codebase parameter is omitted.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -275,7 +280,7 @@ impl McpServer {
                         },
                         "codebase": {
                             "type": "string",
-                            "description": "Path to the indexed codebase"
+                            "description": "Path or name of the indexed codebase (optional - if omitted, searches all codebases)"
                         },
                         "limit": {
                             "type": "number",
@@ -283,12 +288,12 @@ impl McpServer {
                             "default": 10
                         }
                     },
-                    "required": ["query", "codebase"]
+                    "required": ["query"]
                 }),
             },
             Tool {
                 name: "codebase_status".to_string(),
-                description: "List all indexed codebases and their statistics.".to_string(),
+                description: "List all indexed codebases and their statistics. Shows human-readable names and full paths for easy identification.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -403,6 +408,7 @@ impl McpServer {
             .get("model")
             .and_then(|v| v.as_str())
             .unwrap_or("minilm");
+        let tags = args.get("tags").and_then(|v| v.as_str());
 
         let path = Path::new(path);
         if !path.exists() {
@@ -460,39 +466,47 @@ impl McpServer {
             .and_then(|v| v.as_str())
             .ok_or_else(|| CodeSearchError::Other("Missing query argument".to_string()))?;
 
-        let codebase_path = args
-            .get("codebase")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| CodeSearchError::Other("Missing codebase argument".to_string()))?;
-
+        let codebase_param = args.get("codebase").and_then(|v| v.as_str());
         let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10) as i64;
 
         if query.trim().is_empty() {
             return Ok(serde_json::json!({ "results": [] }));
         }
 
-        let path = Path::new(codebase_path);
-        if !path.exists() {
-            return Err(CodeSearchError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Codebase path does not exist: {}", codebase_path),
-            )));
-        }
-
         let config = get_config();
         let model = config.model.model_type.as_str();
 
-        let canonical_path = path.canonicalize().map_err(CodeSearchError::Io)?;
-        let codebase_id = get_codebase_hash(&canonical_path);
-
         let conn = init_db()?;
 
-        // Check if codebase is indexed
-        let stats = get_codebase_stats(&conn, &codebase_id)?;
-        if stats.is_none() {
-            return Err(CodeSearchError::CodebaseNotIndexed(
-                codebase_path.to_string(),
-            ));
+        // Determine which codebase(s) to search
+        let codebase_id = if let Some(codebase) = codebase_param {
+            // Try to find the codebase by path, name, or ID
+            let path = Path::new(codebase);
+            if path.exists() {
+                // It's a path
+                let canonical_path = path.canonicalize().map_err(CodeSearchError::Io)?;
+                Some(get_codebase_hash(&canonical_path))
+            } else {
+                // Try to find by name or ID
+                let codebases = crate::database::list_codebases_with_metadata(&conn)?;
+                let found = codebases.iter().find(|cb| {
+                    cb.name == codebase || cb.codebase_id == codebase || cb.path == codebase
+                });
+                found.map(|cb| cb.codebase_id.clone())
+            }
+        } else {
+            // Search all codebases
+            None
+        };
+
+        // Check if codebase is indexed (when specified)
+        if let Some(ref id) = codebase_id {
+            let stats = get_codebase_stats(&conn, id)?;
+            if stats.is_none() {
+                return Err(CodeSearchError::CodebaseNotIndexed(
+                    codebase_param.unwrap_or("unknown").to_string(),
+                ));
+            }
         }
 
         // Ensure model is available
@@ -509,28 +523,45 @@ impl McpServer {
         let db_results = hybrid_search(
             &conn,
             query,
-            Some(&codebase_id),
+            codebase_id.as_deref(),
             &query_embedding,
             limit,
             &filters,
             false,
         )?;
 
+        // Add codebase name to results
+        let codebases = crate::database::list_codebases_with_metadata(&conn)?;
+        let codebase_map: std::collections::HashMap<String, String> = codebases
+            .into_iter()
+            .map(|cb| (cb.codebase_id.clone(), cb.name.clone()))
+            .collect();
+
         let results: Vec<serde_json::Value> = db_results
             .into_iter()
             .map(|r| {
+                let codebase_name = codebase_map
+                    .get(&r.codebase_id)
+                    .cloned()
+                    .unwrap_or_else(|| r.codebase_id.clone());
                 serde_json::json!({
                     "file": r.file_path,
                     "lines": format!("{}-{}", r.start_line, r.end_line),
                     "content": r.content,
                     "score": r.score,
                     "language": r.language,
-                    "rank": r.rank
+                    "rank": r.rank,
+                    "codebase_id": r.codebase_id,
+                    "codebase_name": codebase_name
                 })
             })
             .collect();
 
-        Ok(serde_json::json!({ "results": results }))
+        Ok(serde_json::json!({
+            "results": results,
+            "query": query,
+            "searched_all_codebases": codebase_id.is_none()
+        }))
     }
 
     fn tool_codebase_status(
@@ -539,18 +570,23 @@ impl McpServer {
     ) -> Result<serde_json::Value> {
         let _args = args;
 
-        let codebases = list_indexed_codebases()?;
-
         let conn = init_db()?;
+        let codebases = crate::database::list_codebases_with_metadata(&conn)?;
         let global_stats = get_global_stats(&conn)?;
 
         let codebase_list: Vec<serde_json::Value> = codebases
             .into_iter()
             .map(|cb| {
                 serde_json::json!({
-                    "codebase_id": cb.codebase_id,
+                    "id": cb.codebase_id,
+                    "name": cb.name,
+                    "path": cb.path,
                     "chunk_count": cb.chunk_count,
-                    "file_count": cb.file_count
+                    "file_count": cb.file_count,
+                    "model": cb.model,
+                    "tags": cb.tags,
+                    "indexed_at": cb.indexed_at,
+                    "last_updated": cb.last_updated
                 })
             })
             .collect();

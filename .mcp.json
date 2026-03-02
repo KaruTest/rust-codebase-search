@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "code-search": {
+      "type": "stdio",
+      "command": "/home/karutoil/rust-codebase-search/mcp-server.sh",
+      "args": [],
+      "env": {}
+    }
+  }
+}

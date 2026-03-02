@@ -50,7 +50,6 @@ fn get_batch_size() -> usize {
     get_config().batch_size()
 }
 
-
 #[derive(Debug, Clone)]
 pub struct IndexingOptions {
     pub chunk_size: Option<usize>,
@@ -246,6 +245,27 @@ impl Indexer {
         }
 
         save_manifest_internal(&manifest_path, &new_manifest)?;
+
+        // Register codebase metadata
+        let codebase_name = codebase_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let codebase_path_str = codebase_path.to_string_lossy().to_string();
+
+        if let Err(e) = crate::database::register_codebase(
+            &conn,
+            &codebase_id,
+            &codebase_name,
+            &codebase_path_str,
+            Some(model),
+            None,
+        ) {
+            if self.config.verbose {
+                eprintln!("Warning: Failed to register codebase metadata: {}", e);
+            }
+        }
 
         stats.duration_ms = start.elapsed().as_millis() as u64;
         Ok(stats)

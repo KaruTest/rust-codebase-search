@@ -1,7 +1,7 @@
 use crate::config::get_config;
 use crate::error::{CodeSearchError, Result};
 use directories::ProjectDirs;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -173,6 +173,20 @@ pub fn init_db() -> Result<Connection> {
         CREATE INDEX IF NOT EXISTS idx_clicks_query ON search_clicks(query_text);
         CREATE INDEX IF NOT EXISTS idx_clicks_chunk ON search_clicks(chunk_id);
         CREATE INDEX IF NOT EXISTS idx_clicks_codebase ON search_clicks(codebase_id);
+
+        -- Codebase metadata table for human-readable names and paths
+        CREATE TABLE IF NOT EXISTS codebases (
+            codebase_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            indexed_at INTEGER NOT NULL,
+            last_updated INTEGER,
+            model TEXT,
+            tags TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_codebases_name ON codebases(name);
+        CREATE INDEX IF NOT EXISTS idx_codebases_path ON codebases(path);
 
         -- Query popularity for query-dependent weights
         CREATE TABLE IF NOT EXISTS query_stats (
@@ -775,6 +789,112 @@ pub fn list_indexed_codebases(conn: &Connection) -> Result<Vec<(String, i64, i64
     }
 
     Ok(results)
+}
+
+pub fn register_codebase(
+    conn: &Connection,
+    codebase_id: &str,
+    name: &str,
+    path: &str,
+    model: Option<&str>,
+    tags: Option<&str>,
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO codebases (codebase_id, name, path, indexed_at, last_updated, model, tags)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            codebase_id,
+            name,
+            path,
+            now,
+            now,
+            model,
+            tags
+        ],
+    )
+    .map_err(CodeSearchError::Database)?;
+
+    Ok(())
+}
+
+pub fn get_codebase_metadata(
+    conn: &Connection,
+    codebase_id: &str,
+) -> Result<Option<CodebaseMetadata>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT codebase_id, name, path, indexed_at, last_updated, model, tags
+             FROM codebases 
+             WHERE codebase_id = ?1",
+        )
+        .map_err(CodeSearchError::Database)?;
+
+    let result = stmt
+        .query_row(params![codebase_id], |row| {
+            Ok(CodebaseMetadata {
+                codebase_id: row.get(0)?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                indexed_at: row.get(3)?,
+                last_updated: row.get(4)?,
+                model: row.get(5)?,
+                tags: row.get(6)?,
+                chunk_count: 0,
+                file_count: 0,
+            })
+        })
+        .optional()
+        .map_err(CodeSearchError::Database)?;
+
+    Ok(result)
+}
+
+pub fn list_codebases_with_metadata(conn: &Connection) -> Result<Vec<CodebaseMetadata>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.codebase_id, c.name, c.path, c.indexed_at, c.last_updated, c.model, c.tags,
+                    COUNT(ch.id) as chunk_count, COUNT(DISTINCT ch.file_path) as file_count
+             FROM codebases c
+             LEFT JOIN chunks ch ON c.codebase_id = ch.codebase_id
+             GROUP BY c.codebase_id
+             ORDER BY c.name",
+        )
+        .map_err(CodeSearchError::Database)?;
+
+    let codebases = stmt
+        .query_map([], |row| {
+            Ok(CodebaseMetadata {
+                codebase_id: row.get(0)?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                indexed_at: row.get(3)?,
+                last_updated: row.get(4)?,
+                model: row.get(5)?,
+                tags: row.get(6)?,
+                chunk_count: row.get(7)?,
+                file_count: row.get(8)?,
+            })
+        })
+        .map_err(CodeSearchError::Database)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(CodeSearchError::Database)?;
+
+    Ok(codebases)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodebaseMetadata {
+    pub codebase_id: String,
+    pub name: String,
+    pub path: String,
+    pub indexed_at: i64,
+    pub last_updated: Option<i64>,
+    pub model: Option<String>,
+    pub tags: Option<String>,
+    pub chunk_count: i64,
+    pub file_count: i64,
 }
 
 // ============== Learning-to-Rank Functions ==============

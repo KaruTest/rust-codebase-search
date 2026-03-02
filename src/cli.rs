@@ -372,7 +372,7 @@ fn run_status(list: bool, json: bool) -> Result<()> {
     let conn = init_db()?;
 
     if list {
-        let codebases = list_indexed_codebases()?;
+        let codebases = crate::database::list_codebases_with_metadata(&conn)?;
 
         if codebases.is_empty() {
             println!("No codebases indexed.");
@@ -385,10 +385,16 @@ fn run_status(list: bool, json: bool) -> Result<()> {
             println!("Indexed codebases:");
             println!();
             for cb in codebases {
-                println!(
-                    "  {} ({} files, {} chunks)",
-                    cb.codebase_id, cb.file_count, cb.chunk_count
-                );
+                println!("  {} ({})", cb.name, cb.path);
+                println!("    ID: {}", cb.codebase_id);
+                println!("    Files: {}, Chunks: {}", cb.file_count, cb.chunk_count);
+                if let Some(model) = cb.model {
+                    println!("    Model: {}", model);
+                }
+                if let Some(tags) = cb.tags {
+                    println!("    Tags: {}", tags);
+                }
+                println!();
             }
         }
     } else {
