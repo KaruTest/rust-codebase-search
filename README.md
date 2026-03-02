@@ -764,13 +764,37 @@ src/
 
 **Commands:**
 ```bash
-cargo build              # Build
-cargo test              # Run tests
-cargo test --lib        # Unit tests only
-cargo bench             # Run benchmarks
-cargo fmt --check       # Check formatting
-cargo clippy            # Linting
+cargo build          # Build
+cargo test          # Run tests
+cargo test --lib    # Unit tests only
+cargo bench         # Run benchmarks (see BENCHMARK_RESULTS.md)
+cargo fmt --check   # Check formatting
+cargo clippy        # Linting
 ```
+
+### Benchmarking
+
+The project includes comprehensive benchmarks using Criterion:
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark group
+cargo bench -- language_detection
+
+# View HTML reports
+open target/criterion/report/index.html
+```
+
+**Benchmark Results Summary:**
+- Language detection: ~16.5 µs
+- File splitting (50 lines): ~18 µs  
+- File splitting (5000 lines): ~158 µs
+- Hash generation: 155 ns - 5 µs
+- Context enrichment: 483 ns - 2.5 µs
+
+See [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md) for detailed results and analysis.
 
 ---
 
