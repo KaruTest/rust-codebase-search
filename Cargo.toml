@@ -62,11 +62,15 @@ signal-hook = "0.3"
 criterion = "0.5"
 tempfile = "3"
 
-[[bin]]
-name = "code-search"
-path = "src/main.rs"
+[[bench]]
+name = "benchmark"
+harness = false
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.bench]
+lto = true
+codegen-units = 1
