@@ -305,7 +305,7 @@ mod onnx_backend {
                 .map_err(|e| CodeSearchError::EmbeddingModelLoad(format!("Lock error: {}", e)))?;
 
             if write_guard.is_none() {
-                let model = LoadedModel::new(self.model_type)?;
+                let model = LoadedModel::new(self.model_type.clone())?;
                 *write_guard = Some(model);
             }
 
@@ -375,7 +375,7 @@ mod onnx_backend {
     }
 
     impl ModelType {
-        pub fn repo_id(&self) -> &'static str {
+        pub fn repo_id(&self) -> &str {
             match self {
                 ModelType::MiniLM => "sentence-transformers/all-MiniLM-L6-v2",
                 ModelType::Nomic => "nomic-ai/nomic-embed-text-v1.5",

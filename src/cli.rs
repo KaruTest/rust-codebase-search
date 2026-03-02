@@ -485,6 +485,12 @@ fn run_config(show_path: bool, create: bool, config: &Config) -> Result<()> {
         // Model config
         println!("  [model]");
         println!("    model_type: {}", config.model.model_type);
+        if let Some(path) = &config.model.model_path {
+            println!("    model_path: {}", path);
+        }
+        if let Some(dim) = config.model.embedding_dim {
+            println!("    embedding_dim: {}", dim);
+        }
         println!("    auto_download: {}", config.model.auto_download);
 
         // Indexing config
