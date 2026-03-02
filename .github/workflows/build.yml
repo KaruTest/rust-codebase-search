@@ -110,10 +110,14 @@ jobs:
             ${{ runner.os }}-apt-release-
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y git
+        run: |
+          apt-get update && apt-get install -y git
+          git config --global --add safe.directory /__w/rust-codebase-search/rust-codebase-search
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          safe-directory: '/__w/rust-codebase-search/rust-codebase-search'
 
       - name: Get latest commit message
         id: commit
