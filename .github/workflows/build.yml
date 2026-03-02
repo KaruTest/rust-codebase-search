@@ -39,17 +39,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Cache apt packages (Linux)
+        if: matrix.os == 'linux'
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
       - name: Install dependencies (Linux)
         if: matrix.os == 'linux'
         run: |
           apt-get update
           apt-get install -y mingw-w64 clang curl pkg-config libssl-dev
 
-      - name: Install Rust (Linux)
-        if: matrix.os == 'linux'
-        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          targets: ${{ matrix.target }}
+          workspaces: './ -> target'
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-hf-models-
 
       - name: Build release
         shell: bash
@@ -77,6 +93,17 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-release-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-release-
+
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y git
+
       - name: Checkout code
         uses: actions/checkout@v4
 
