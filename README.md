@@ -7,10 +7,13 @@ A high-performance semantic code search MCP (Model Context Protocol) server for 
 ## Quick Start
 
 ```bash
-# Build the MCP server
-cargo build --release
+# Download the latest release for your platform
+# Linux: https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search-linux
+# Windows: https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search.exe
 
-# The binary will be at target/release/code-search
+# Make it executable (Linux only)
+chmod +x code-search-linux
+
 # Configure it with your MCP client (see below)
 ```
 
@@ -18,22 +21,41 @@ cargo build --release
 
 ## Installation
 
-### Prerequisites
+### Download Pre-built Binaries
 
-- Rust 1.70 or later
-- ONNX Runtime binaries (automatically downloaded by ort crate)
+Pre-built binaries are available for Linux and Windows from the [GitHub Releases](https://github.com/yourusername/rust-codebase-search/releases) page.
 
-### Build from Source
+**Linux:**
+```bash
+# Download the latest Linux binary
+wget https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search-linux
+
+# Make it executable
+chmod +x code-search-linux
+
+# Move to your preferred location
+sudo mv code-search-linux /usr/local/bin/code-search
+```
+
+**Windows:**
+```powershell
+# Download the latest Windows binary
+# https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search.exe
+
+# Move to your preferred location (e.g., C:\Tools\code-search.exe)
+```
+
+**No build required!** The binaries include all dependencies and are ready to use.
+
+### Build from Source (Optional)
+
+If you prefer to build from source or need a custom build:
 
 ```bash
-# Clone the repository
+# Prerequisites: Rust 1.70 or later
 git clone <repository-url>
 cd rust-codebase-search
-
-# Build the project
 cargo build --release
-
-# The MCP server binary will be at target/release/code-search
 ```
 
 ---
@@ -42,12 +64,15 @@ cargo build --release
 
 ### Claude Code Setup
 
-1. **Create `.mcp.json` in your project root:**
+1. **Download and install the binary** (see Installation section above)
 
+2. **Create `.mcp.json` in your project root:**
+
+**Linux:**
 ```json
 {
   "codebase-search": {
-    "command": "/path/to/rust-codebase-search/target/release/code-search",
+    "command": "/usr/local/bin/code-search",
     "args": ["mcp"],
     "env": {
       "RUST_LOG": "info"
@@ -56,7 +81,20 @@ cargo build --release
 }
 ```
 
-2. **Update Claude Code Settings:**
+**Windows:**
+```json
+{
+  "codebase-search": {
+    "command": "C:\\Tools\\code-search.exe",
+    "args": ["mcp"],
+    "env": {
+      "RUST_LOG": "info"
+    }
+  }
+}
+```
+
+3. **Update Claude Code Settings:**
 
 Add to `~/.claude/settings.json`:
 ```json
@@ -71,11 +109,24 @@ Add to `~/.claude/settings.json`:
 
 Add to `claude_desktop_config.json`:
 
+**Linux:**
 ```json
 {
   "mcpServers": {
     "code-search": {
-      "command": "/path/to/rust-codebase-search/target/release/code-search",
+      "command": "/usr/local/bin/code-search",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Windows:**
+```json
+{
+  "mcpServers": {
+    "code-search": {
+      "command": "C:\\Tools\\code-search.exe",
       "args": ["mcp"]
     }
   }
@@ -88,13 +139,25 @@ Add to `claude_desktop_config.json`:
 
 ### Zed Editor Setup
 
-Add to `~/.zed/settings.json`:
+Add to `~/.zed/settings.json` (Linux) or `%USERPROFILE%\.zed\settings.json` (Windows):
 
+**Linux:**
 ```json
 {
   "mcp": {
     "code-search": {
-      "command": ["/path/to/rust-codebase-search/target/release/code-search", "mcp"]
+      "command": ["/usr/local/bin/code-search", "mcp"]
+    }
+  }
+}
+```
+
+**Windows:**
+```json
+{
+  "mcp": {
+    "code-search": {
+      "command": ["C:\\Tools\\code-search.exe", "mcp"]
     }
   }
 }
@@ -104,11 +167,24 @@ Add to `~/.zed/settings.json`:
 
 Add to `settings.json`:
 
+**Linux:**
 ```json
 {
   "mcpServers": {
     "code-search": {
-      "command": "/path/to/rust-codebase-search/target/release/code-search",
+      "command": "/usr/local/bin/code-search",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Windows:**
+```json
+{
+  "mcpServers": {
+    "code-search": {
+      "command": "C:\\Tools\\code-search.exe",
       "args": ["mcp"]
     }
   }
@@ -296,15 +372,22 @@ The MCP server supports several configuration options:
 
 Test your MCP server installation:
 
+**Linux:**
 ```bash
 # Test server initialization
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | /path/to/code-search mcp
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | /usr/local/bin/code-search mcp
 
 # List available tools
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | /path/to/code-search mcp
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | /usr/local/bin/code-search mcp
 
 # Test codebase search
-echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codebase_status","arguments":{}}}' | /path/to/code-search mcp
+echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codebase_status","arguments":{}}}' | /usr/local/bin/code-search mcp
+```
+
+**Windows:**
+```powershell
+# Test server initialization (PowerShell)
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | C:\Tools\code-search.exe mcp
 ```
 
 ---
@@ -313,16 +396,23 @@ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codebase_s
 
 ### MCP Server Not Connecting
 
-1. **Verify binary path** is correct in configuration
-2. **Check binary is executable**: `chmod +x target/release/code-search`
+1. **Verify binary path** is correct in configuration (Linux: `/usr/local/bin/code-search`, Windows: `C:\Tools\code-search.exe`)
+2. **Check binary is executable** (Linux only): `chmod +x /usr/local/bin/code-search`
 3. **Test manually**: Run the test commands above
 4. **Check logs**: Set `RUST_LOG=debug` in environment variables
 
 ### Indexing Issues
 
+**Linux:**
 ```bash
 # Re-index with force flag
-echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"codebase_index","arguments":{"path":"/path/to/codebase","force":true}}}' | /path/to/code-search mcp
+echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"codebase_index","arguments":{"path":"/path/to/codebase","force":true}}}' | /usr/local/bin/code-search mcp
+```
+
+**Windows:**
+```powershell
+# Re-index with force flag
+'{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"codebase_index","arguments":{"path":"C:\\path\\to\\codebase","force":true}}}' | C:\Tools\code-search.exe mcp
 ```
 
 ### Clear All Data
