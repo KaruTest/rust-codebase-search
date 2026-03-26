@@ -8,8 +8,8 @@ A high-performance semantic code search MCP (Model Context Protocol) server for 
 
 ```bash
 # Download the latest release for your platform
-# Linux: https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search-linux
-# Windows: https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search.exe
+# Linux: https://github.com/KaruTest/rust-codebase-search/releases/latest/download/code-search-linux
+# Windows: https://github.com/KaruTest/rust-codebase-search/releases/latest/download/code-search.exe
 
 # Make it executable (Linux only)
 chmod +x code-search-linux
@@ -23,12 +23,12 @@ chmod +x code-search-linux
 
 ### Download Pre-built Binaries
 
-Pre-built binaries are available for Linux and Windows from the [GitHub Releases](https://github.com/yourusername/rust-codebase-search/releases) page.
+Pre-built binaries are available for Linux and Windows from the [GitHub Releases](https://github.com/KaruTest/rust-codebase-search/releases) page.
 
 **Linux:**
 ```bash
 # Download the latest Linux binary
-wget https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search-linux
+wget https://github.com/KaruTest/rust-codebase-search/releases/latest/download/code-search-linux
 
 # Make it executable
 chmod +x code-search-linux
@@ -40,7 +40,7 @@ sudo mv code-search-linux /usr/local/bin/code-search
 **Windows:**
 ```powershell
 # Download the latest Windows binary
-# https://github.com/yourusername/rust-codebase-search/releases/latest/download/code-search.exe
+# https://github.com/KaruTest/rust-codebase-search/releases/latest/download/code-search.exe
 
 # Move to your preferred location (e.g., C:\Tools\code-search.exe)
 ```
