@@ -1,10 +1,9 @@
 {
-  "mcpServers": {
-    "code-search": {
-      "type": "stdio",
-      "command": "/home/karutoil/rust-codebase-search/mcp-server.sh",
-      "args": [],
-      "env": {}
+  "codebase-search": {
+    "command": "/home/karutoil/rust-codebase-search/target/release/code-search",
+    "args": ["mcp"],
+    "env": {
+      "RUST_LOG": "info"
     }
   }
 }

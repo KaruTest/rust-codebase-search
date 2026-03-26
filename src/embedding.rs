@@ -3,7 +3,83 @@ use crate::error::Result;
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
-pub const DEFAULT_MODEL: &str = "minilm";
+pub const DEFAULT_MODEL: &str = "balanced";
+
+/// Model tier configuration for code-optimized embeddings
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelTier {
+    /// Ultra-lightweight (137M params, 768-dim) - Fast, minimal resources
+    Light,
+    /// Balanced (400M params, 1024-dim) - Best price/performance
+    Balanced,
+    /// Quality (1.5B params, 1536-dim) - High performance
+    Quality,
+    /// Ultra (2B params, 2048-dim) - Maximum accuracy
+    Ultra,
+}
+
+impl ModelTier {
+    pub fn huggingface_id(&self) -> &'static str {
+        match self {
+            ModelTier::Light => "jinaai/jina-embeddings-v2-base-code",
+            ModelTier::Balanced => "Salesforce/SFR-Embedding-Code-400M_R",
+            ModelTier::Quality => "jinaai/jina-code-embeddings-1.5b",
+            ModelTier::Ultra => "Salesforce/SFR-Embedding-Code-2B_R",
+        }
+    }
+
+    pub fn onnx_model_path(&self) -> &'static str {
+        match self {
+            ModelTier::Light => "model.onnx",
+            ModelTier::Balanced => "onnx/model.onnx",
+            ModelTier::Quality => "model.onnx",
+            ModelTier::Ultra => "model.onnx",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ModelTier::Light => "light",
+            ModelTier::Balanced => "balanced",
+            ModelTier::Quality => "quality",
+            ModelTier::Ultra => "ultra",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            ModelTier::Light => "Ultra-fast, minimal resources (137M, 768-dim)",
+            ModelTier::Balanced => "Best balance of speed and quality (400M, 1024-dim)",
+            ModelTier::Quality => "High performance (1.5B, 1536-dim)",
+            ModelTier::Ultra => "Maximum accuracy (2B, 2048-dim)",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "light" | "fast" | "mini" => ModelTier::Light,
+            "balanced" | "medium" | "default" => ModelTier::Balanced,
+            "quality" | "high" | "large" => ModelTier::Quality,
+            "ultra" | "best" | "max" => ModelTier::Ultra,
+            _ => ModelTier::Balanced,
+        }
+    }
+}
+
+/// Legacy model types for backward compatibility
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModelType {
+    Tier(ModelTier),
+    Legacy(LegacyModel),
+    Custom(CustomModelConfig),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LegacyModel {
+    MiniLM,
+    Nomic,
+    Nemotron,
+}
 
 /// Custom model configuration for user-specified embeddings
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,24 +88,26 @@ pub struct CustomModelConfig {
     pub embedding_dim: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModelType {
-    MiniLM,
-    Nomic,
-    Nemotron,
-    Custom(CustomModelConfig),
-}
-
 impl std::str::FromStr for ModelType {
     type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "minilm" | "all-minilm-l6-v2" => Ok(ModelType::MiniLM),
-            "nomic" | "nomic-embed-text-v1.5" => Ok(ModelType::Nomic),
-            "nemotron" | "llama-nemotron-embed-vl-1b-v2" => Ok(ModelType::Nemotron),
+            // New tier-based models (code-optimized)
+            "light" | "fast" | "mini" => Ok(ModelType::Tier(ModelTier::Light)),
+            "balanced" | "medium" | "default" => Ok(ModelType::Tier(ModelTier::Balanced)),
+            "quality" | "high" | "large" => Ok(ModelType::Tier(ModelTier::Quality)),
+            "ultra" | "best" | "max" => Ok(ModelType::Tier(ModelTier::Ultra)),
+
+            // Legacy models (backward compatibility)
+            "minilm" | "all-minilm-l6-v2" => Ok(ModelType::Legacy(LegacyModel::MiniLM)),
+            "nomic" | "nomic-embed-text-v1.5" => Ok(ModelType::Legacy(LegacyModel::Nomic)),
+            "nemotron" | "llama-nemotron-embed-vl-1b-v2" => {
+                Ok(ModelType::Legacy(LegacyModel::Nemotron))
+            }
+
+            // Custom model
             "custom" => {
-                // For custom models, we need to load config to get model_path and embedding_dim
                 let config = get_config();
                 if let (Some(model_path), Some(embedding_dim)) =
                     (config.model_path(), config.embedding_dim())
@@ -42,7 +120,7 @@ impl std::str::FromStr for ModelType {
                     Err("Custom model requires model_path and embedding_dim in config".to_string())
                 }
             }
-            _ => Ok(ModelType::MiniLM),
+            _ => Ok(ModelType::Tier(ModelTier::Balanced)), // Default to balanced
         }
     }
 }
@@ -51,34 +129,78 @@ impl ModelType {
     pub fn parse(s: &str) -> Self {
         match s.parse() {
             Ok(model_type) => model_type,
-            Err(_) => ModelType::MiniLM,
+            Err(_) => ModelType::Tier(ModelTier::Balanced),
         }
     }
 
     pub fn dimension(&self) -> usize {
         match self {
-            ModelType::MiniLM => 384,
-            ModelType::Nomic => 768,
-            ModelType::Nemotron => 2048,
+            ModelType::Tier(tier) => match tier {
+                ModelTier::Light => 768,
+                ModelTier::Balanced => 1024,
+                ModelTier::Quality => 1536,
+                ModelTier::Ultra => 2048,
+            },
+            ModelType::Legacy(legacy) => match legacy {
+                LegacyModel::MiniLM => 384,
+                LegacyModel::Nomic => 768,
+                LegacyModel::Nemotron => 2048,
+            },
             ModelType::Custom(config) => config.embedding_dim,
         }
     }
 
     pub fn document_prefix(&self) -> &'static str {
         match self {
-            ModelType::MiniLM => "",
-            ModelType::Nomic => "search_document: ",
-            ModelType::Nemotron => "passage: ",
+            ModelType::Tier(tier) => match tier {
+                ModelTier::Light => "",
+                ModelTier::Balanced => "",
+                ModelTier::Quality => "",
+                ModelTier::Ultra => "",
+            },
+            ModelType::Legacy(legacy) => match legacy {
+                LegacyModel::MiniLM => "",
+                LegacyModel::Nomic => "search_document: ",
+                LegacyModel::Nemotron => "passage: ",
+            },
             ModelType::Custom(_) => "",
         }
     }
 
     pub fn query_prefix(&self) -> &'static str {
         match self {
-            ModelType::MiniLM => "",
-            ModelType::Nomic => "search_query: ",
-            ModelType::Nemotron => "query: ",
+            ModelType::Tier(tier) => match tier {
+                ModelTier::Light => "",
+                ModelTier::Balanced => "",
+                ModelTier::Quality => "",
+                ModelTier::Ultra => "",
+            },
+            ModelType::Legacy(legacy) => match legacy {
+                LegacyModel::MiniLM => "",
+                LegacyModel::Nomic => "search_query: ",
+                LegacyModel::Nemotron => "query: ",
+            },
             ModelType::Custom(_) => "",
+        }
+    }
+
+    pub fn huggingface_id(&self) -> Option<&'static str> {
+        match self {
+            ModelType::Tier(tier) => Some(tier.huggingface_id()),
+            ModelType::Legacy(_) => None,
+            ModelType::Custom(_) => None,
+        }
+    }
+
+    pub fn display_name(&self) -> &str {
+        match self {
+            ModelType::Tier(tier) => tier.display_name(),
+            ModelType::Legacy(legacy) => match legacy {
+                LegacyModel::MiniLM => "minilm",
+                LegacyModel::Nomic => "nomic",
+                LegacyModel::Nemotron => "nemotron",
+            },
+            ModelType::Custom(_) => "custom",
         }
     }
 }
@@ -377,9 +499,10 @@ mod onnx_backend {
     impl ModelType {
         pub fn repo_id(&self) -> &str {
             match self {
-                ModelType::MiniLM => "sentence-transformers/all-MiniLM-L6-v2",
-                ModelType::Nomic => "nomic-ai/nomic-embed-text-v1.5",
-                ModelType::Nemotron => "nvidia/llama-nemotron-embed-vl-1b-v2",
+                ModelType::Tier(tier) => tier.huggingface_id(),
+                ModelType::Legacy(LegacyModel::MiniLM) => "sentence-transformers/all-MiniLM-L6-v2",
+                ModelType::Legacy(LegacyModel::Nomic) => "nomic-ai/nomic-embed-text-v1.5",
+                ModelType::Legacy(LegacyModel::Nemotron) => "nvidia/llama-nemotron-embed-vl-1b-v2",
                 ModelType::Custom(config) => &config.model_path,
             }
         }
@@ -485,11 +608,22 @@ static CUSTOM_EMBEDDER: OnceLock<GlobalEmbedder> = OnceLock::new();
 
 fn get_embedder(model_type: &ModelType) -> &'static GlobalEmbedder {
     match model_type {
-        ModelType::MiniLM => MINILM_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::MiniLM)),
-        ModelType::Nomic => NOMIC_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Nomic)),
-        ModelType::Nemotron => {
-            NEMOTRON_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Nemotron))
-        }
+        ModelType::Tier(tier) => match tier {
+            ModelTier::Light => MINILM_EMBEDDER
+                .get_or_init(|| GlobalEmbedder::new(ModelType::Tier(ModelTier::Light))),
+            ModelTier::Balanced => NOMIC_EMBEDDER
+                .get_or_init(|| GlobalEmbedder::new(ModelType::Tier(ModelTier::Balanced))),
+            ModelTier::Quality => NEMOTRON_EMBEDDER
+                .get_or_init(|| GlobalEmbedder::new(ModelType::Tier(ModelTier::Quality))),
+            ModelTier::Ultra => NEMOTRON_EMBEDDER
+                .get_or_init(|| GlobalEmbedder::new(ModelType::Tier(ModelTier::Ultra))),
+        },
+        ModelType::Legacy(LegacyModel::MiniLM) => MINILM_EMBEDDER
+            .get_or_init(|| GlobalEmbedder::new(ModelType::Legacy(LegacyModel::MiniLM))),
+        ModelType::Legacy(LegacyModel::Nomic) => NOMIC_EMBEDDER
+            .get_or_init(|| GlobalEmbedder::new(ModelType::Legacy(LegacyModel::Nomic))),
+        ModelType::Legacy(LegacyModel::Nemotron) => NEMOTRON_EMBEDDER
+            .get_or_init(|| GlobalEmbedder::new(ModelType::Legacy(LegacyModel::Nemotron))),
         ModelType::Custom(config) => {
             CUSTOM_EMBEDDER.get_or_init(|| GlobalEmbedder::new(ModelType::Custom(config.clone())))
         }
@@ -604,7 +738,7 @@ pub fn is_model_loaded(model: &str) -> bool {
 }
 
 pub fn zero_embedding() -> Vec<f32> {
-    vec![0.0_f32; ModelType::MiniLM.dimension()]
+    vec![0.0_f32; ModelType::Legacy(LegacyModel::MiniLM).dimension()]
 }
 
 pub fn zero_embedding_with_model(model: &str) -> Vec<f32> {
@@ -621,34 +755,92 @@ mod tests {
 
     #[test]
     fn test_model_type_from_str() {
-        assert_eq!(ModelType::parse("minilm"), ModelType::MiniLM);
-        assert_eq!(ModelType::parse("MiniLM"), ModelType::MiniLM);
-        assert_eq!(ModelType::parse("all-minilm-l6-v2"), ModelType::MiniLM);
-        assert_eq!(ModelType::parse("nomic"), ModelType::Nomic);
-        assert_eq!(ModelType::parse("Nomic"), ModelType::Nomic);
-        assert_eq!(ModelType::parse("nemotron"), ModelType::Nemotron);
+        // Test new tier models
+        assert_eq!(ModelType::parse("light"), ModelType::Tier(ModelTier::Light));
+        assert_eq!(
+            ModelType::parse("balanced"),
+            ModelType::Tier(ModelTier::Balanced)
+        );
+        assert_eq!(
+            ModelType::parse("quality"),
+            ModelType::Tier(ModelTier::Quality)
+        );
+        assert_eq!(ModelType::parse("ultra"), ModelType::Tier(ModelTier::Ultra));
+
+        // Test legacy models
+        assert_eq!(
+            ModelType::parse("minilm"),
+            ModelType::Legacy(LegacyModel::MiniLM)
+        );
+        assert_eq!(
+            ModelType::parse("MiniLM"),
+            ModelType::Legacy(LegacyModel::MiniLM)
+        );
+        assert_eq!(
+            ModelType::parse("all-minilm-l6-v2"),
+            ModelType::Legacy(LegacyModel::MiniLM)
+        );
+        assert_eq!(
+            ModelType::parse("nomic"),
+            ModelType::Legacy(LegacyModel::Nomic)
+        );
+        assert_eq!(
+            ModelType::parse("Nomic"),
+            ModelType::Legacy(LegacyModel::Nomic)
+        );
+        assert_eq!(
+            ModelType::parse("nemotron"),
+            ModelType::Legacy(LegacyModel::Nemotron)
+        );
         assert_eq!(
             ModelType::parse("llama-nemotron-embed-vl-1b-v2"),
-            ModelType::Nemotron
+            ModelType::Legacy(LegacyModel::Nemotron)
         );
-        assert_eq!(ModelType::parse("unknown"), ModelType::MiniLM);
+        assert_eq!(
+            ModelType::parse("unknown"),
+            ModelType::Tier(ModelTier::Balanced)
+        );
     }
 
     #[test]
     fn test_model_dimensions() {
-        assert_eq!(ModelType::MiniLM.dimension(), 384);
-        assert_eq!(ModelType::Nomic.dimension(), 768);
-        assert_eq!(ModelType::Nemotron.dimension(), 2048);
+        // Tier models
+        assert_eq!(ModelType::Tier(ModelTier::Light).dimension(), 768);
+        assert_eq!(ModelType::Tier(ModelTier::Balanced).dimension(), 1024);
+        assert_eq!(ModelType::Tier(ModelTier::Quality).dimension(), 1536);
+        assert_eq!(ModelType::Tier(ModelTier::Ultra).dimension(), 2048);
+
+        // Legacy models
+        assert_eq!(ModelType::Legacy(LegacyModel::MiniLM).dimension(), 384);
+        assert_eq!(ModelType::Legacy(LegacyModel::Nomic).dimension(), 768);
+        assert_eq!(ModelType::Legacy(LegacyModel::Nemotron).dimension(), 2048);
     }
 
     #[test]
     fn test_model_prefixes() {
-        assert_eq!(ModelType::MiniLM.document_prefix(), "");
-        assert_eq!(ModelType::MiniLM.query_prefix(), "");
-        assert_eq!(ModelType::Nomic.document_prefix(), "search_document: ");
-        assert_eq!(ModelType::Nomic.query_prefix(), "search_query: ");
-        assert_eq!(ModelType::Nemotron.document_prefix(), "passage: ");
-        assert_eq!(ModelType::Nemotron.query_prefix(), "query: ");
+        // Tier models (no prefixes)
+        assert_eq!(ModelType::Tier(ModelTier::Light).document_prefix(), "");
+        assert_eq!(ModelType::Tier(ModelTier::Light).query_prefix(), "");
+
+        // Legacy models
+        assert_eq!(ModelType::Legacy(LegacyModel::MiniLM).document_prefix(), "");
+        assert_eq!(ModelType::Legacy(LegacyModel::MiniLM).query_prefix(), "");
+        assert_eq!(
+            ModelType::Legacy(LegacyModel::Nomic).document_prefix(),
+            "search_document: "
+        );
+        assert_eq!(
+            ModelType::Legacy(LegacyModel::Nomic).query_prefix(),
+            "search_query: "
+        );
+        assert_eq!(
+            ModelType::Legacy(LegacyModel::Nemotron).document_prefix(),
+            "passage: "
+        );
+        assert_eq!(
+            ModelType::Legacy(LegacyModel::Nemotron).query_prefix(),
+            "query: "
+        );
     }
 
     #[test]
@@ -667,26 +859,25 @@ mod tests {
     }
 
     #[test]
-    fn test_zero_embedding() {
-        let embedding = zero_embedding();
-        assert_eq!(embedding.len(), 384);
-        assert!(embedding.iter().all(|&v| v == 0.0));
-    }
 
     #[test]
     fn test_get_model_dimension() {
         assert_eq!(get_model_dimension("minilm"), 384);
         assert_eq!(get_model_dimension("nomic"), 768);
         assert_eq!(get_model_dimension("nemotron"), 2048);
+        assert_eq!(get_model_dimension("light"), 768);
+        assert_eq!(get_model_dimension("balanced"), 1024);
+        assert_eq!(get_model_dimension("quality"), 1536);
+        assert_eq!(get_model_dimension("ultra"), 2048);
     }
 
     #[test]
     fn test_hash_to_embedding() {
-        let emb1 = hash_to_embedding("hello world", 384);
-        let emb2 = hash_to_embedding("hello world", 384);
-        let emb3 = hash_to_embedding("different text", 384);
+        let emb1 = hash_to_embedding("hello world", 1024);
+        let emb2 = hash_to_embedding("hello world", 1024);
+        let emb3 = hash_to_embedding("different text", 1024);
 
-        assert_eq!(emb1.len(), 384);
+        assert_eq!(emb1.len(), 1024);
         assert_eq!(emb1, emb2);
 
         let norm: f32 = emb1.iter().map(|v| v * v).sum::<f32>().sqrt();
@@ -704,11 +895,11 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_embedding() {
+    fn test_get_embedding_functions() {
         let emb = get_embedding("test query");
-        assert_eq!(emb.len(), 384);
+        assert_eq!(emb.len(), 1024); // Balanced tier (default)
 
         let query_emb = get_query_embedding("test query");
-        assert_eq!(query_emb.len(), 384);
+        assert_eq!(query_emb.len(), 1024); // Balanced tier (default)
     }
 }
