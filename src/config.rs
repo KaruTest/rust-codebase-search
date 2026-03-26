@@ -14,7 +14,7 @@ const ENV_PREFIX: &str = "CODE_SEARCH_";
 // ============== Model Configuration ==============
 
 fn default_model_type() -> String {
-    "minilm".to_string()
+    "balanced".to_string()
 }
 
 fn default_auto_download() -> bool {
